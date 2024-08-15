@@ -51,7 +51,7 @@ export default async function (request: VercelRequest, response: VercelResponse)
     response.send(`OCF forecast CSV error: ${error}`);
     return;
   }
-  const [, filename] = forecastCsvRes.headers.get('Content-Disposition')?.split('filename=');
+  const [, filename] = forecastCsvRes.headers.get('Content-Disposition')?.split('filename=') || ["", ""];
   console.log("File: ", filename);
   const forecastCsv = await forecastCsvRes.text();
   console.log(forecastCsv);
@@ -69,7 +69,7 @@ export default async function (request: VercelRequest, response: VercelResponse)
   const resendRes = await resend.emails.send({
     from: 'Quartz Energy <notifications@mail.quartz.energy>',
     reply_to: "quartz.support@openclimatefix.org",
-    to: [process.env.EMAIL_RECIPIENT],
+    to: [process.env.EMAIL_RECIPIENT || ""],
     subject: 'Day Ahead Forecast – Wind',
     html,
     attachments: [
