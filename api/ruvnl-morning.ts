@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { Resend } from "resend";
 
 export default async function (request: VercelRequest, response: VercelResponse) {
+
   console.log('Sending email');
   // Get OCF login token
   type TokenResponse = {
@@ -44,20 +45,18 @@ export default async function (request: VercelRequest, response: VercelResponse)
       'Authorization': `Bearer ${tokenData.access_token}`,
     },
   });
-  // console.log(forecastCsvRes);
   if (!forecastCsvRes.ok) {
     const error = await forecastCsvRes.text();
     console.log(error);
     response.send(`OCF forecast CSV error: ${error}`);
     return;
   }
+  // Convert csv ready for email
   const [, filename] = forecastCsvRes.headers.get('Content-Disposition')?.split('filename=') || ["", ""];
-  console.log("File: ", filename);
   const forecastCsv = await forecastCsvRes.text();
-  console.log(forecastCsv);
   const forecastBuffer = Buffer.from(forecastCsv, 'utf-8');
-  console.log(forecastBuffer);
 
+  // Prep and send email
   const resend = new Resend(process.env.RESEND_API_KEY);
 
   const html = "<span>Good morning,<br/><br/>" +
