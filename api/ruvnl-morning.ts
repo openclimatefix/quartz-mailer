@@ -3,13 +3,14 @@ import { Resend } from "resend";
 
 export default async function (request: VercelRequest, response: VercelResponse) {
   // Validate request is authorized
+  // Vercel will automatically add this header from the env variable
   const {authorization} = request.headers;
   const cronToken = authorization || "";
   if (!cronToken) {
     response.status(403).send("Token missing");
     return;
   }
-  if (cronToken !== process.env.CRON_SECRET) {
+  if (cronToken !== `Bearer ${process.env.CRON_SECRET}`) {
     response.status(403).send("Token invalid");
     return;
   }
@@ -108,7 +109,7 @@ export default async function (request: VercelRequest, response: VercelResponse)
     response.send(resendRes.error);
     return;
   } else {
-    console.log('Email sent');
+    console.log(`Email sent to ${process.env.EMAIL_RECIPIENT}`);
     console.log("Resend response: ", resendRes.data);
     response.send('Email sent');
   }
