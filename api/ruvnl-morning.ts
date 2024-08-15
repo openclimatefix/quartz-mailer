@@ -82,10 +82,14 @@ export default async function (request: VercelRequest, response: VercelResponse)
     "The Open Climate Fix Team" +
     "<br/><br/><br/></span>";
 
+  const recipients = process.env.EMAIL_RECIPIENTS?.includes(",")
+    ? process.env.EMAIL_RECIPIENTS.split(",")
+    : [process.env.EMAIL_RECIPIENTS || ""];
+  console.log("recipients", recipients)
   const resendRes = await resend.emails.send({
     from: 'Quartz Energy <notifications@mail.quartz.energy>',
     reply_to: "quartz.support@openclimatefix.org",
-    to: [process.env.EMAIL_RECIPIENT || ""],
+    to: recipients,
     subject: 'Day Ahead Forecast – Wind',
     html,
     attachments: [
@@ -109,8 +113,22 @@ export default async function (request: VercelRequest, response: VercelResponse)
     response.send(resendRes.error);
     return;
   } else {
-    console.log(`Email sent to ${process.env.EMAIL_RECIPIENT}`);
+    let message = "";
+    if (recipients.length === 1) {
+      message += "Email sent to "
+    } else {
+      message += "Emails sent to "
+      for (const i in recipients) {
+        const email = recipients[i];
+        console.log(`Email sent to ${email}`);
+        if (Number(i) === recipients.length - 1) {
+          message += `and ${email}`
+        } else {
+          message += `${email}, `
+        }
+      }
+    }
     console.log("Resend response: ", resendRes.data);
-    response.send('Email sent');
+    response.send(message);
   }
 }
