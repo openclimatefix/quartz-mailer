@@ -1,5 +1,6 @@
 {
   "name": "quartz-mailer",
+  "repository": "https://github.com/openclimatefix/quartz-mailer",
   "version": "1.0.0",
   "author": "braddf",
   "license": "MIT",
