@@ -1,5 +1,73 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { Resend } from "resend";
+import { CreateEmailResponse, Resend } from "resend";
+
+const getOcfDAForecastCsv: (source: "wind" | "solar", token: string) => Promise<Response> = async (source, token) => {
+  const region = 'ruvnl';
+  const url = `${process.env.OCF_API_URL}/${source}/${region}/forecast/csv`;
+  return await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+}
+
+const sendQuartzEmail: (resend: Resend, recipients: string[], subject: string, filename: string, content: Buffer) => Promise<CreateEmailResponse> = async (resend, recipients, subject, filename, content) => {
+  const html = "<span>Good morning,<br/><br/>" +
+    "Find attached the OCF Day Ahead forecast for tomorrow.<br/><br/>" +
+    "Kind regards,<br/>" +
+    "The Open Climate Fix Team" +
+    "<br/><br/><br/></span>";
+
+  return await resend.emails.send({
+    from: 'Quartz Energy <notifications@mail.quartz.energy>',
+    reply_to: "quartz.support@openclimatefix.org",
+    to: recipients,
+    subject,
+    html,
+    attachments: [
+      {
+        filename,
+        content,
+        content_type: 'text/csv; charset="UTF-8"',
+      },
+    ],
+    tags: [
+      {
+        name: 'category',
+        value: 'ruvnl_email',
+      },
+    ],
+  });
+}
+
+const checkEmailResponse = (message: string, source: "Wind" | "Solar", resendResult: CreateEmailResponse, recipients: string[]) => {
+  if (resendResult.error) {
+    console.log(`${source} email not sent`);
+    console.log(resendResult.error);
+    message += resendResult.error
+    message += " \n---\n "
+  } else {
+    if (recipients.length === 1) {
+      message += `${source} email sent to ${recipients[0]}`
+    } else {
+      message += `${source} emails sent to `
+      for (const i in recipients) {
+        const email = recipients[i];
+        console.log(`${source} email sent to ${email}`);
+        if (Number(i) === recipients.length - 1) {
+          message += `and ${email}`
+        } else {
+          message += `${email}, `
+        }
+      }
+    }
+    message += " \n---\n "
+    console.log(`${source} Resend response: `, resendResult.data);
+  }
+  return message;
+};
 
 export default async function (request: VercelRequest, response: VercelResponse) {
   // Validate request is authorized
@@ -45,90 +113,53 @@ export default async function (request: VercelRequest, response: VercelResponse)
   const tokenData: TokenResponse = await tokenRes.json();
   console.log(tokenData);
 
-  // Get OCF forecast CSV file
-  const source = 'wind';
-  const region = 'ruvnl';
-  const url = `${process.env.OCF_API_URL}/${source}/${region}/forecast/csv`;
-  console.log("url", url);
-  const forecastCsvRes = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${tokenData.access_token}`,
-    },
-  });
-  if (!forecastCsvRes.ok) {
-    const error = await forecastCsvRes.text();
+  // Get OCF wind forecast CSV file
+  const windForecastCsvRes = await getOcfDAForecastCsv("wind", tokenData.access_token)
+  if (!windForecastCsvRes.ok) {
+    const error = await windForecastCsvRes.text();
     console.log(error);
-    response.send(`OCF forecast CSV error: ${error}`);
+    response.send(`OCF wind forecast CSV fetch error: ${error}`);
     return;
   }
+  console.log("OCF wind forecast received, preparing CSV")
 
-  console.log("OCF forecast received, preparing CSV")
+  // Get OCF solar forecast CSV file
+  const solarForecastCsvRes = await getOcfDAForecastCsv("solar", tokenData.access_token)
+  if (!solarForecastCsvRes.ok) {
+    const error = await solarForecastCsvRes.text();
+    console.log(error);
+    response.send(`OCF solar forecast CSV fetch error: ${error}`);
+    return;
+  }
+  console.log("OCF solar forecast received, preparing CSV")
 
-  // Convert csv ready for email
-  const [, filename] = forecastCsvRes.headers.get('Content-Disposition')?.split('filename=') || ["", ""];
-  const forecastCsv = await forecastCsvRes.text();
-  const forecastBuffer = Buffer.from(forecastCsv, 'utf-8');
+  // Convert CSVs ready for emails
+  const [, windFilename] = windForecastCsvRes.headers.get('Content-Disposition')?.split('filename=') || ["", ""];
+  const windForecastCsv = await windForecastCsvRes.text();
+  const windForecastBuffer = Buffer.from(windForecastCsv, 'utf-8');
 
-  console.log("CSV ready, sending email")
+  const [, solarFilename] = solarForecastCsvRes.headers.get('Content-Disposition')?.split('filename=') || ["", ""];
+  const solarForecastCsv = await solarForecastCsvRes.text();
+  const solarForecastBuffer = Buffer.from(solarForecastCsv, 'utf-8');
 
-  // Prep and send email
+  console.log("CSVs ready, sending emails")
+
+  // Prep and send emails
   const resend = new Resend(process.env.RESEND_API_KEY);
-
-  const html = "<span>Good morning,<br/><br/>" +
-    "Find attached the OCF Day Ahead forecast for tomorrow.<br/><br/>" +
-    "Kind regards,<br/>" +
-    "The Open Climate Fix Team" +
-    "<br/><br/><br/></span>";
 
   const recipients = process.env.EMAIL_RECIPIENTS?.includes(",")
     ? process.env.EMAIL_RECIPIENTS.split(",")
     : [process.env.EMAIL_RECIPIENTS || ""];
   console.log("recipients", recipients)
-  const resendRes = await resend.emails.send({
-    from: 'Quartz Energy <notifications@mail.quartz.energy>',
-    reply_to: "quartz.support@openclimatefix.org",
-    to: recipients,
-    subject: 'Day Ahead Forecast – Wind',
-    html,
-    attachments: [
-      {
-        filename: filename,
-        content: forecastBuffer,
-        content_type: 'text/csv; charset="UTF-8"',
-      },
-    ],
-    tags: [
-      {
-        name: 'category',
-        value: 'ruvnl_email',
-      },
-    ],
-  });
+  const windResendRes = await sendQuartzEmail(resend, recipients, "DA Forecast – Wind", windFilename, windForecastBuffer)
+  const solarResendRes = await sendQuartzEmail(resend, recipients, "DA Forecast – Solar", solarFilename, solarForecastBuffer)
 
-  if (resendRes.error) {
-    console.log('Email not sent');
-    console.log(resendRes.error);
-    response.send(resendRes.error);
-    return;
-  } else {
-    let message = "";
-    if (recipients.length === 1) {
-      message += "Email sent to "
-    } else {
-      message += "Emails sent to "
-      for (const i in recipients) {
-        const email = recipients[i];
-        console.log(`Email sent to ${email}`);
-        if (Number(i) === recipients.length - 1) {
-          message += `and ${email}`
-        } else {
-          message += `${email}, `
-        }
-      }
-    }
-    console.log("Resend response: ", resendRes.data);
-    response.send(message);
-  }
+  // Check if wind emails sent successfully and append to results message
+  let message = "";
+  message = checkEmailResponse(message, "Wind", windResendRes, recipients);
+  // Check if solar emails sent successfully and append to results message
+  message = checkEmailResponse(message, "Solar", solarResendRes, recipients);
+  // Return results message
+  console.log(message);
+  response.send(message);
 }
