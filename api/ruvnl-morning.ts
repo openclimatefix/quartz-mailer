@@ -71,6 +71,13 @@ const checkEmailResponse = (message: string, source: "Wind" | "Solar", resendRes
   return message;
 };
 
+const getTomorrowDateString: () => string = () => {
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+  return tomorrow.toLocaleDateString();
+}
+
 export default async function (request: VercelRequest, response: VercelResponse) {
   // Validate request is authorized
   // Vercel will automatically add this header from the env variable
@@ -153,8 +160,9 @@ export default async function (request: VercelRequest, response: VercelResponse)
     ? process.env.EMAIL_RECIPIENTS.split(",")
     : [process.env.EMAIL_RECIPIENTS || ""];
   console.log("recipients", recipients)
-  const windResendRes = await sendQuartzEmails(resend, recipients, "DA Forecast – Wind", windFilename, windForecastBuffer)
-  const solarResendRes = await sendQuartzEmails(resend, recipients, "DA Forecast – Solar", solarFilename, solarForecastBuffer)
+  const tomorrowDateString = getTomorrowDateString();
+  const windResendRes = await sendQuartzEmails(resend, recipients, `DA Wind Forecast for ${tomorrowDateString}`, windFilename, windForecastBuffer)
+  const solarResendRes = await sendQuartzEmails(resend, recipients, `DA Solar Forecast for ${tomorrowDateString}`, solarFilename, solarForecastBuffer)
 
   // Check if wind emails sent successfully and append to results message
   let message = "";
