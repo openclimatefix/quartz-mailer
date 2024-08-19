@@ -1,6 +1,6 @@
 {
   "crons": [{
     "path": "/api/ruvnl-morning",
-    "schedule": "10 4 * * *"
+    "schedule": "10 3 * * *"
   }]
 }
