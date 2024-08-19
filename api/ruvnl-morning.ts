@@ -20,6 +20,9 @@ const sendQuartzEmails: (resend: Resend, recipients: string[], subject: string, 
     "The Open Climate Fix Team" +
     "<br/><br/><br/></span>";
 
+  // Send a separate email to each person, rather than one email to everyone
+  // Firstly, so recipients can't see each other's email addresses,
+  // and secondly, so we can track which emails were delivered and opened (mostly)
   return await resend.batch.send(recipients.map(recipient => {
     return {
       from: 'Quartz Energy <notifications@mail.quartz.energy>',
