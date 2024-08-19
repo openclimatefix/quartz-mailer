@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { CreateEmailResponse, Resend } from "resend";
+import { CreateBatchResponse, Resend } from "resend";
 
 const getOcfDAForecastCsv: (source: "wind" | "solar", token: string) => Promise<Response> = async (source, token) => {
   const region = 'ruvnl';
@@ -13,36 +13,38 @@ const getOcfDAForecastCsv: (source: "wind" | "solar", token: string) => Promise<
   });
 }
 
-const sendQuartzEmail: (resend: Resend, recipients: string[], subject: string, filename: string, content: Buffer) => Promise<CreateEmailResponse> = async (resend, recipients, subject, filename, content) => {
+const sendQuartzEmails: (resend: Resend, recipients: string[], subject: string, filename: string, content: Buffer) => Promise<CreateBatchResponse> = async (resend, recipients, subject, filename, content) => {
   const html = "<span>Good morning,<br/><br/>" +
     "Find attached the OCF Day Ahead forecast for tomorrow.<br/><br/>" +
     "Kind regards,<br/>" +
     "The Open Climate Fix Team" +
     "<br/><br/><br/></span>";
 
-  return await resend.emails.send({
-    from: 'Quartz Energy <notifications@mail.quartz.energy>',
-    reply_to: "quartz.support@openclimatefix.org",
-    to: recipients,
-    subject,
-    html,
-    attachments: [
-      {
-        filename,
-        content,
-        content_type: 'text/csv; charset="UTF-8"',
-      },
-    ],
-    tags: [
-      {
-        name: 'category',
-        value: 'ruvnl_email',
-      },
-    ],
-  });
+  return await resend.batch.send(recipients.map(recipient => {
+    return {
+      from: 'Quartz Energy <notifications@mail.quartz.energy>',
+      reply_to: "quartz.support@openclimatefix.org",
+      to: recipient,
+      subject,
+      html,
+      attachments: [
+        {
+          filename,
+          content,
+          content_type: 'text/csv; charset="UTF-8"',
+        },
+      ],
+      tags: [
+        {
+          name: 'category',
+          value: 'ruvnl_email',
+        },
+      ],
+    }
+  }));
 }
 
-const checkEmailResponse = (message: string, source: "Wind" | "Solar", resendResult: CreateEmailResponse, recipients: string[]) => {
+const checkEmailResponse = (message: string, source: "Wind" | "Solar", resendResult: CreateBatchResponse, recipients: string[]) => {
   if (resendResult.error) {
     console.log(`${source} email not sent`);
     console.log(resendResult.error);
@@ -151,8 +153,8 @@ export default async function (request: VercelRequest, response: VercelResponse)
     ? process.env.EMAIL_RECIPIENTS.split(",")
     : [process.env.EMAIL_RECIPIENTS || ""];
   console.log("recipients", recipients)
-  const windResendRes = await sendQuartzEmail(resend, recipients, "DA Forecast – Wind", windFilename, windForecastBuffer)
-  const solarResendRes = await sendQuartzEmail(resend, recipients, "DA Forecast – Solar", solarFilename, solarForecastBuffer)
+  const windResendRes = await sendQuartzEmails(resend, recipients, "DA Forecast – Wind", windFilename, windForecastBuffer)
+  const solarResendRes = await sendQuartzEmails(resend, recipients, "DA Forecast – Solar", solarFilename, solarForecastBuffer)
 
   // Check if wind emails sent successfully and append to results message
   let message = "";
