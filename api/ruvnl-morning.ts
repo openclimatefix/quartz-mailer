@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { CreateBatchResponse, Resend } from "resend";
+import { CreateEmailResponse, Resend } from "resend";
 
 const getOcfDAForecastCsv: (source: "wind" | "solar", token: string) => Promise<Response> = async (source, token) => {
   const region = 'ruvnl';
@@ -13,18 +13,36 @@ const getOcfDAForecastCsv: (source: "wind" | "solar", token: string) => Promise<
   });
 }
 
-const sendQuartzEmails: (resend: Resend, recipients: string[], subject: string, filename: string, content: Buffer) => Promise<CreateBatchResponse> = async (resend, recipients, subject, filename, content) => {
+// function to incrementally convert an array of strings into a list of objects in a sentence, one at a time
+// e.g. (item, itemIndex, listLength, message) => message = "a", message = "a and b", message = "a, b, and c"
+// if the list is empty, the message will be ""
+const buildMessageFromList = (item: string, itemIndex: string, listLength: number, message: string) => {
+  // List only contains one item
+  if (listLength === 1) {
+    return `${message} ${item}`;
+  }
+  // First item in list
+  if (itemIndex === "0") {
+    return `${message} ${item}`;
+  }
+  // Last item in list
+  if (Number(itemIndex) === listLength - 1) {
+    return `${message} and ${item}`;
+  }
+  // Middle item in list
+  return `${message}, ${item}`;
+}
+
+
+const sendQuartzEmail: (resend: Resend, recipient: string, subject: string, filename: string, content: Buffer) => Promise<CreateEmailResponse> = async (resend, recipient, subject, filename, content) => {
   const html = "<span>Good morning,<br/><br/>" +
     "Find attached the OCF Day Ahead forecast for tomorrow.<br/><br/>" +
     "Kind regards,<br/>" +
     "The Open Climate Fix Team" +
     "<br/><br/><br/></span>";
 
-  // Send a separate email to each person, rather than one email to everyone
-  // Firstly, so recipients can't see each other's email addresses,
-  // and secondly, so we can track which emails were delivered and opened (mostly)
-  return await resend.batch.send(recipients.map(recipient => {
-    return {
+  return await resend.emails.send(
+    {
       from: 'Quartz Energy <notifications@mail.quartz.energy>',
       reply_to: "quartz.support@openclimatefix.org",
       to: recipient,
@@ -44,31 +62,17 @@ const sendQuartzEmails: (resend: Resend, recipients: string[], subject: string, 
         },
       ],
     }
-  }));
+  );
 }
 
-const checkEmailResponse = (message: string, source: "Wind" | "Solar", resendResult: CreateBatchResponse, recipients: string[]) => {
+const checkEmailsSentAndBuildMessage = (message: string, source: "Wind" | "Solar", resendResult: CreateEmailResponse, recipient: string, recipientsLength: number, currentIndex: string) => {
   if (resendResult.error) {
     console.log(`${source} email not sent`);
-    console.log(resendResult.error);
-    message += resendResult.error
-    message += " \n---\n "
+    console.log(resendResult.error.message);
+    message += resendResult.error.message;
+    message += " \n---\n ";
   } else {
-    if (recipients.length === 1) {
-      message += `${source} email sent to ${recipients[0]}`
-    } else {
-      message += `${source} emails sent to `
-      for (const i in recipients) {
-        const email = recipients[i];
-        console.log(`${source} email sent to ${email}`);
-        if (Number(i) === recipients.length - 1) {
-          message += `and ${email}`
-        } else {
-          message += `${email}, `
-        }
-      }
-    }
-    message += " \n---\n "
+    message = buildMessageFromList(recipient, currentIndex, recipientsLength, message);
     console.log(`${source} Resend response: `, resendResult.data);
   }
   return message;
@@ -163,16 +167,31 @@ export default async function (request: VercelRequest, response: VercelResponse)
     ? process.env.EMAIL_RECIPIENTS.split(",")
     : [process.env.EMAIL_RECIPIENTS || ""];
   console.log("recipients", recipients)
+  let windMessage = `Wind emails sent to`;
+  let solarMessage = "Solar emails sent to";
   const tomorrowDateString = getTomorrowDateString();
-  const windResendRes = await sendQuartzEmails(resend, recipients, `DA Wind Forecast for ${tomorrowDateString}`, windFilename, windForecastBuffer)
-  const solarResendRes = await sendQuartzEmails(resend, recipients, `DA Solar Forecast for ${tomorrowDateString}`, solarFilename, solarForecastBuffer)
 
-  // Check if wind emails sent successfully and append to results message
-  let message = "";
-  message = checkEmailResponse(message, "Wind", windResendRes, recipients);
-  // Check if solar emails sent successfully and append to results message
-  message = checkEmailResponse(message, "Solar", solarResendRes, recipients);
+  // Send a separate email to each person, rather than one email to everyone
+  // Firstly, so recipients can't see each other's email addresses,
+  // and secondly, so we can track which emails were delivered and opened (mostly)
+  for (const [index, recipient] of Object.entries(recipients)) {
+    console.log(`Sending to ${recipient}`)
+    // Wind Email
+    const windResendRes = await sendQuartzEmail(resend, recipient, `DA Wind Forecast for ${tomorrowDateString}`, windFilename, windForecastBuffer)
+    // Check if wind emails sent successfully and append to results message
+    windMessage = checkEmailsSentAndBuildMessage(windMessage, "Wind", windResendRes, recipient, recipients.length, index);
+
+    // Solar Email
+    const solarResendRes = await sendQuartzEmail(resend, recipient, `DA Solar Forecast for ${tomorrowDateString}`, solarFilename, solarForecastBuffer)
+    // Check if solar emails sent successfully and append to results message
+    solarMessage = checkEmailsSentAndBuildMessage(solarMessage, "Solar", solarResendRes, recipient, recipients.length, index);
+
+    // Wait 2 seconds between sending emails to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+
   // Return results message
-  console.log(message);
-  response.send(message);
+  console.log(windMessage);
+  console.log(solarMessage);
+  response.send(`${windMessage} \n---\n ${solarMessage}`);
 }
