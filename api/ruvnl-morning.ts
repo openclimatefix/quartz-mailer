@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { CreateEmailResponse, Resend } from "resend";
+import { checkEmailsSentAndBuildMessage, getTomorrowDateString } from "../utils.js";
 
 const getOcfDAForecastCsv: (source: "wind" | "solar", token: string) => Promise<Response> = async (source, token) => {
   const region = 'ruvnl';
@@ -11,26 +12,6 @@ const getOcfDAForecastCsv: (source: "wind" | "solar", token: string) => Promise<
       'Authorization': `Bearer ${token}`,
     },
   });
-}
-
-// function to incrementally convert an array of strings into a list of objects in a sentence, one at a time
-// e.g. (item, itemIndex, listLength, message) => message = "a", message = "a and b", message = "a, b, and c"
-// if the list is empty, the message will be ""
-const buildMessageFromList = (item: string, itemIndex: string, listLength: number, message: string) => {
-  // List only contains one item
-  if (listLength === 1) {
-    return `${message} ${item}`;
-  }
-  // First item in list
-  if (itemIndex === "0") {
-    return `${message} ${item}`;
-  }
-  // Last item in list
-  if (Number(itemIndex) === listLength - 1) {
-    return `${message} and ${item}`;
-  }
-  // Middle item in list
-  return `${message}, ${item}`;
 }
 
 
@@ -63,26 +44,6 @@ const sendQuartzEmail: (resend: Resend, recipient: string, subject: string, file
       ],
     }
   );
-}
-
-const checkEmailsSentAndBuildMessage = (message: string, source: "Wind" | "Solar", resendResult: CreateEmailResponse, recipient: string, recipientsLength: number, currentIndex: string) => {
-  if (resendResult.error) {
-    console.log(`${source} email not sent`);
-    console.log(resendResult.error.message);
-    message += resendResult.error.message;
-    message += " \n---\n ";
-  } else {
-    message = buildMessageFromList(recipient, currentIndex, recipientsLength, message);
-    console.log(`${source} Resend response: `, resendResult.data);
-  }
-  return message;
-};
-
-const getTomorrowDateString: () => string = () => {
-  const today = new Date();
-  const tomorrow = new Date();
-  tomorrow.setDate(today.getDate() + 1);
-  return tomorrow.toISOString().slice(0, 10);
 }
 
 export default async function (request: VercelRequest, response: VercelResponse) {
@@ -167,8 +128,8 @@ export default async function (request: VercelRequest, response: VercelResponse)
     ? process.env.EMAIL_RECIPIENTS.split(",")
     : [process.env.EMAIL_RECIPIENTS || ""];
   console.log("recipients", recipients)
-  let windMessage = `Wind emails sent to`;
-  let solarMessage = "Solar emails sent to";
+  let windMessage = "Wind emails sent to ";
+  let solarMessage = "Solar emails sent to ";
   const tomorrowDateString = getTomorrowDateString();
 
   // Send a separate email to each person, rather than one email to everyone
