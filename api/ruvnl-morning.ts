@@ -1,9 +1,25 @@
+import * as fs from 'fs';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { CreateEmailResponse, Resend } from "resend";
+
+const logApiEndpoint = (endpoint: string) => {
+  const timestamp = new Date().toISOString();
+  const logMessage = `${timestamp} - API endpoint hit: ${endpoint}\n`;
+  
+  fs.appendFile('logs.txt', logMessage, (err) => {
+    if (err) {
+      console.error('Error writing to log file:', err);
+    }
+  });
+};
 
 const getOcfDAForecastCsv: (source: "wind" | "solar", token: string) => Promise<Response> = async (source, token) => {
   const region = 'ruvnl';
   const url = `${process.env.OCF_API_URL}/${source}/${region}/forecast/csv`;
+  
+  // Log the API endpoint
+  logApiEndpoint(url);
+
   return await fetch(url, {
     method: 'GET',
     headers: {
@@ -107,7 +123,10 @@ export default async function (request: VercelRequest, response: VercelResponse)
     expires_in: number;
     token_type: string;
   }
-  const tokenRes = await fetch(`${process.env.AUTH0_DOMAIN}/oauth/token`, {
+  const tokenUrl = `${process.env.AUTH0_DOMAIN}/oauth/token`;
+  logApiEndpoint(tokenUrl);
+  
+  const tokenRes = await fetch(tokenUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
