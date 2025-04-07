@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { CreateEmailResponse, Resend } from "resend";
 
-const getOcfDAForecastCsv: (source: "wind" | "solar", token: string) => Promise<Response> = async (source, token) => {
+const getOcfIntradayForecastCsv: (source: "wind" | "solar", token: string) => Promise<Response> = async (source, token) => {
   const region = 'ruvnl';
-  const url = `${process.env.OCF_API_URL}/${source}/${region}/forecast/csv?forecast_horizon=day_ahead`;
+  const url = `${process.env.OCF_API_URL}/${source}/${region}/forecast/csv?forecast_horizon=latest`;
   return await fetch(url, {
     method: 'GET',
     headers: {
@@ -35,8 +35,8 @@ const buildMessageFromList = (item: string, itemIndex: string, listLength: numbe
 
 
 const sendQuartzEmail: (resend: Resend, recipient: string, subject: string, filename: string, content: Buffer) => Promise<CreateEmailResponse> = async (resend, recipient, subject, filename, content) => {
-  const html = "<span>Good morning,<br/><br/>" +
-    "Find attached the OCF Day Ahead forecast for tomorrow.<br/><br/>" +
+  const html = "<span>Hello,<br/><br/>" +
+    "Find attached the latest OCF intraday forecast.<br/><br/>" +
     "Kind regards,<br/>" +
     "The Open Climate Fix Team" +
     "<br/><br/><br/></span>";
@@ -62,7 +62,7 @@ const sendQuartzEmail: (resend: Resend, recipient: string, subject: string, file
         },
         {
           name: 'horizon',
-          value: 'day_ahead',
+          value: 'latest',
         }
       ],
     }
@@ -82,11 +82,14 @@ const checkEmailsSentAndBuildMessage = (message: string, source: "Wind" | "Solar
   return message;
 };
 
-const getTomorrowDateString: () => string = () => {
+const getIntradayDatetimeString: () => string = () => {
   const today = new Date();
-  const tomorrow = new Date();
-  tomorrow.setDate(today.getDate() + 1);
-  return tomorrow.toISOString().slice(0, 10);
+  const dateFormat = new Intl.DateTimeFormat("in-EN", {
+    timeZone: "Asia/Kolkata",
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+  return dateFormat.format(today)
 }
 
 export default async function (request: VercelRequest, response: VercelResponse) {
@@ -100,6 +103,11 @@ export default async function (request: VercelRequest, response: VercelResponse)
   }
   if (cronToken !== `Bearer ${process.env.CRON_SECRET}`) {
     response.status(403).send("Token invalid");
+    return;
+  }
+
+  if(!process.env.INTRADAY_EMAIL_RECIPIENTS?.length) {
+    response.status(400).send("No email recipients set");
     return;
   }
 
@@ -134,7 +142,7 @@ export default async function (request: VercelRequest, response: VercelResponse)
   console.log(tokenData);
 
   // Get OCF wind forecast CSV file
-  const windForecastCsvRes = await getOcfDAForecastCsv("wind", tokenData.access_token)
+  const windForecastCsvRes = await getOcfIntradayForecastCsv("wind", tokenData.access_token)
   if (!windForecastCsvRes.ok) {
     const error = await windForecastCsvRes.text();
     console.log(error);
@@ -144,7 +152,7 @@ export default async function (request: VercelRequest, response: VercelResponse)
   console.log("OCF wind forecast received, preparing CSV")
 
   // Get OCF solar forecast CSV file
-  const solarForecastCsvRes = await getOcfDAForecastCsv("solar", tokenData.access_token)
+  const solarForecastCsvRes = await getOcfIntradayForecastCsv("solar", tokenData.access_token)
   if (!solarForecastCsvRes.ok) {
     const error = await solarForecastCsvRes.text();
     console.log(error);
@@ -167,13 +175,13 @@ export default async function (request: VercelRequest, response: VercelResponse)
   // Prep and send emails
   const resend = new Resend(process.env.RESEND_API_KEY);
 
-  const recipients = process.env.EMAIL_RECIPIENTS?.includes(",")
-    ? process.env.EMAIL_RECIPIENTS.split(",")
-    : [process.env.EMAIL_RECIPIENTS || ""];
+  const recipients = process.env.INTRADAY_EMAIL_RECIPIENTS?.includes(",")
+    ? process.env.INTRADAY_EMAIL_RECIPIENTS.split(",")
+    : [process.env.INTRADAY_EMAIL_RECIPIENTS || ""];
   console.log("recipients", recipients)
   let windMessage = `Wind emails sent to`;
   let solarMessage = "Solar emails sent to";
-  const tomorrowDateString = getTomorrowDateString();
+  const todayDateString = getIntradayDatetimeString();
 
   // Send a separate email to each person, rather than one email to everyone
   // Firstly, so recipients can't see each other's email addresses,
@@ -181,12 +189,12 @@ export default async function (request: VercelRequest, response: VercelResponse)
   for (const [index, recipient] of Object.entries(recipients)) {
     console.log(`Sending to ${recipient}`)
     // Wind Email
-    const windResendRes = await sendQuartzEmail(resend, recipient, `DA Wind Forecast for ${tomorrowDateString}`, windFilename, windForecastBuffer)
+    const windResendRes = await sendQuartzEmail(resend, recipient, `Intraday Wind Forecast for ${todayDateString}`, windFilename, windForecastBuffer)
     // Check if wind emails sent successfully and append to results message
     windMessage = checkEmailsSentAndBuildMessage(windMessage, "Wind", windResendRes, recipient, recipients.length, index);
 
     // Solar Email
-    const solarResendRes = await sendQuartzEmail(resend, recipient, `DA Solar Forecast for ${tomorrowDateString}`, solarFilename, solarForecastBuffer)
+    const solarResendRes = await sendQuartzEmail(resend, recipient, `Intraday Solar Forecast for ${todayDateString}`, solarFilename, solarForecastBuffer)
     // Check if solar emails sent successfully and append to results message
     solarMessage = checkEmailsSentAndBuildMessage(solarMessage, "Solar", solarResendRes, recipient, recipients.length, index);
 
