@@ -6,11 +6,11 @@
     },
     {
       "path": "/api/ruvnl-intraday",
-      "schedule": "30 9,12,15,18,21,0,3,6 * * *"
+      "schedule": "45 5,8,11,14,17,20,23,2 * * *"
     },
     {
       "path": "/api/ruvnl-intraday",
-      "schedule": "0 11,14,17,20,23,2,5,8 * * *"
+      "schedule": "0 4,7,10,13,16,19,22,1 * * *"
     }
   ]
 }
